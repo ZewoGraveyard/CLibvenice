@@ -41,4 +41,4 @@ Join us on [Slack](https://zewo-slackin.herokuapp.com).
 License
 -------
 
-**URI** is released under the MIT license. See LICENSE for details.
+**CLibvenice** is released under the MIT license. See LICENSE for details.
