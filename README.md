@@ -13,23 +13,26 @@ CLibvenice
 - Install [`libvenice`](https://github.com/Zewo/libvenice)
 
 ### Homebrew 
+
 ```bash
-$ brew tap zewo/tap
-$ brew install libvenice
+brew tap zewo/tap
+brew install libvenice
 ```
 
 ### Ubuntu/Debian
+
 ```bash
-$ echo "deb [trusted=yes] http://apt.zewo.io/deb ./" | sudo tee --append /etc/apt/sources.list
-$ sudo apt-get update
-$ sudo apt-get install libvenice
+echo "deb [trusted=yes] http://apt.zewo.io/deb ./" | sudo tee --append /etc/apt/sources.list
+sudo apt-get update
+sudo apt-get install libvenice
 ```
 
 ### Source
+
 ```bash
-$ git clone https://github.com/Zewo/libvenice.git && cd libvenice
-$ make
-$ (sudo) make install
+git clone https://github.com/Zewo/libvenice.git && cd libvenice
+make
+sudo make install
 ```
 
 - Add `CLibvenice` to your `Package.swift`
@@ -38,9 +41,9 @@ $ (sudo) make install
 import PackageDescription
 
 let package = Package(
-	dependencies: [
-		.Package(url: "https://github.com/Zewo/CLibvenice.git", majorVersion: 0, minor: 2)
-	]
+    dependencies: [
+        .Package(url: "https://github.com/Zewo/CLibvenice.git", majorVersion: 0, minor: 2)
+    ]
 )
 
 ```
