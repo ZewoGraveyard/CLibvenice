@@ -12,14 +12,14 @@ CLibvenice
 
 - Install [`libvenice`](https://github.com/Zewo/libvenice)
 
-### Homebrew 
+### OS X 
 
 ```bash
 brew tap zewo/tap
 brew install libvenice
 ```
 
-### Ubuntu/Debian
+### Linux
 
 ```bash
 echo "deb [trusted=yes] http://apt.zewo.io/deb ./" | sudo tee --append /etc/apt/sources.list
