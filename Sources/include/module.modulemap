@@ -1,0 +1,5 @@
+module CLibvenice {
+    header "../libvenice.h"
+    link "CLibvenice"
+    export *
+}

@@ -1,48 +1,21 @@
 CLibvenice
 ==========
 
-[![Swift 2.2](https://img.shields.io/badge/Swift-2.2-orange.svg?style=flat)](https://developer.apple.com/swift/)
-[![Platforms Linux](https://img.shields.io/badge/Platforms-Linux-lightgray.svg?style=flat)](https://developer.apple.com/swift/)
-[![License MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat)](https://tldrlegal.com/license/mit-license)
-[![Slack Status](https://zewo-slackin.herokuapp.com/badge.svg)](https://slack.zewo.io)
+[![Swift][swift-badge]][swift-url]
+[![Platform][platform-badge]][platform-url]
+[![License][mit-badge]][mit-url]
+[![Slack][slack-badge]][slack-url]
 
-**CSP** for **Swift 2.2**.
+**CSP** for **Swift 3.0**.
 
-## Installation
-
-- Install [`libvenice`](https://github.com/Zewo/libvenice)
-
-### OS X 
-
-```bash
-brew tap zewo/tap
-brew install libvenice
-```
-
-### Linux
-
-```bash
-echo "deb [trusted=yes] http://apt.zewo.io/deb ./" | sudo tee --append /etc/apt/sources.list
-sudo apt-get update
-sudo apt-get install libvenice
-```
-
-### Source
-
-```bash
-git clone https://github.com/Zewo/libvenice.git && cd libvenice
-make
-sudo make install
-```
-
-- Add `CLibvenice` to your `Package.swift`
+### Package
 
 ```swift
 import PackageDescription
 
 let package = Package(
     dependencies: [
-        .Package(url: "https://github.com/Zewo/CLibvenice.git", majorVersion: 0, minor: 2)
+        .Package(url: "https://github.com/Zewo/CLibvenice.git", majorVersion: 0, minor: 4)
     ]
 )
 
@@ -58,3 +31,13 @@ License
 -------
 
 **CLibvenice** is released under the MIT license. See LICENSE for details.
+
+[swift-badge]: https://img.shields.io/badge/Swift-3.0-orange.svg?style=flat
+[swift-url]: https://swift.org
+[platform-badge]: https://img.shields.io/badge/Platform-Mac%20%26%20Linux-lightgray.svg?style=flat
+[platform-url]: https://swift.org
+[mit-badge]: https://img.shields.io/badge/License-MIT-blue.svg?style=flat
+[mit-url]: https://tldrlegal.com/license/mit-license
+[slack-image]: http://s13.postimg.org/ybwy92ktf/Slack.png
+[slack-badge]: https://zewo-slackin.herokuapp.com/badge.svg
+[slack-url]: http://slack.zewo.io
