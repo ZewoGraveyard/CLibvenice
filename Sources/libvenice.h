@@ -31,6 +31,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <stdio.h>
 
 /******************************************************************************/
 /*  ABI versioning support                                                    */
