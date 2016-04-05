@@ -8,6 +8,8 @@ CLibvenice
 
 **CSP** for **Swift 3.0**.
 
+CLibvenice is a fork of [libmill](http://libmill.org).
+
 ### Package
 
 ```swift
