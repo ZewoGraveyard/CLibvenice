@@ -35,7 +35,7 @@
 
 #include "debug.h"
 #include "ip.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "utils.h"
 
 /* The buffer size is based on typical Ethernet MTU (1500 bytes). Making it

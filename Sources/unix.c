@@ -33,7 +33,7 @@
 #include <unistd.h>
 
 #include "debug.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "utils.h"
 
 #ifndef MILL_UNIX_BUFLEN

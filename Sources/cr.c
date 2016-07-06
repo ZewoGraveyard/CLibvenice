@@ -28,7 +28,7 @@
 
 #include "cr.h"
 #include "debug.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "poller.h"
 #include "stack.h"
 #include "utils.h"
@@ -98,7 +98,7 @@ void *mill_go_prologue(const char *created) {
     /* Suspend the parent coroutine and make the new one running. */
     if(mill_setjmp(&mill_running->ctx))
         return NULL;
-    mill_resume(mill_running, 0);    
+    mill_resume(mill_running, 0);
     mill_running = cr;
     return (void*)(cr);
 }

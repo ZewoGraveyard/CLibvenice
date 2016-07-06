@@ -44,7 +44,7 @@
 #include "dns.h"
 
 #include "ip.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "utils.h"
 
 MILL_CT_ASSERT(sizeof(ipaddr) >= sizeof(struct sockaddr_in));

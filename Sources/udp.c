@@ -34,7 +34,7 @@
 #include <unistd.h>
 
 #include "ip.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "utils.h"
 
 struct mill_udpsock {

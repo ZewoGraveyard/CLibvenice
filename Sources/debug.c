@@ -31,7 +31,7 @@
 
 #include "chan.h"
 #include "cr.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "list.h"
 #include "stack.h"
 #include "utils.h"

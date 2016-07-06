@@ -26,7 +26,7 @@
 #include <sys/param.h>
 
 #include "cr.h"
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "list.h"
 #include "poller.h"
 #include "timer.h"

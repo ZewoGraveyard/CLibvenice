@@ -31,7 +31,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "libvenice.h"
+#include "include/libvenice.h"
 #include "utils.h"
 
 #ifndef MILL_FILE_BUFLEN
