@@ -22,6 +22,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#define _XOPEN_SOURCE 500
+#include <ftw.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stddef.h>
@@ -403,4 +405,12 @@ off_t filesize(mfile f) {
 
 int fileeof(mfile f) {
     return f->eof;
+}
+
+int unlink_cb(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
+    return remove(fpath);
+}
+
+int fileremove(const char *path) {
+    return nftw(path, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
 }

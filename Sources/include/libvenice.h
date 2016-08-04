@@ -229,6 +229,7 @@ MILL_EXPORT off_t filetell(mfile f);
 MILL_EXPORT off_t fileseek(mfile f, off_t offset);
 MILL_EXPORT off_t filesize(mfile f);
 MILL_EXPORT int fileeof(mfile f);
+MILL_EXPORT int fileremove(const char *path);
 
 /******************************************************************************/
 /*  Debugging                                                                 */
