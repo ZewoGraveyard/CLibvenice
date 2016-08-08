@@ -25,6 +25,7 @@
 #ifndef LIBMILL_H_INCLUDED
 #define LIBMILL_H_INCLUDED
 
+#include <termios.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
