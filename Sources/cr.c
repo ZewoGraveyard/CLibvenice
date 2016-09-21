@@ -37,10 +37,10 @@
 #include <dlfcn.h>
 #include <objc/runtime.h>
 #include <objc/message.h>
-static void *autoreleasePool = NULL;
+static id autoreleasePool = NULL;
 
 static Class (*objc_getClass_fptr)(const char *name);
-static id (*objc_msgSend_fptr)(Class self, SEL, ...);
+static id (*objc_msgSend_fptr)(id self, SEL, ...);
 static SEL (*sel_getUid_fptr)(const char *str);
 
 static int darwin_prepared = 0;
@@ -65,7 +65,7 @@ void darwin_pool() {
     darwin_prepare();
     Class cls = objc_getClass_fptr("NSAutoreleasePool");
     objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
-    autoreleasePool = objc_msgSend_fptr(cls, sel_getUid_fptr("alloc"));
+    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
     autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
 }
 #endif
@@ -80,6 +80,10 @@ struct mill_cr *mill_running = &mill_main;
 static struct mill_slist mill_ready = {0};
 
 void goprepare(int count, size_t stack_size) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+    
     if(mill_slow(mill_hascrs())) {errno = EAGAIN; return;}
     /* Allocate any resources needed by the polling mechanism. */
     mill_poller_init();
@@ -133,6 +137,10 @@ void mill_resume(struct mill_cr *cr, int result) {
 /* The intial part of go(). Starts the new coroutine.
    Returns the pointer to the top of its stack. */
 void *mill_go_prologue(const char *created) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+    
     /* Ensure that debug functions are available whenever a single go()
      statement is present in the user's code. */
     mill_preserve_debug();
@@ -150,6 +158,10 @@ void *mill_go_prologue(const char *created) {
 
 /* The final part of go(). Cleans up after the coroutine is finished. */
 void mill_go_epilogue(void) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+    
     mill_trace(NULL, "go() done");
     mill_unregister_cr(&mill_running->debug);
     mill_freestack(mill_running + 1);
@@ -160,6 +172,10 @@ void mill_go_epilogue(void) {
 }
 
 void mill_yield(const char *current) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+    
     mill_trace(current, "yield()");
     mill_set_current(&mill_running->debug, current);
     /* This looks fishy, but yes, we can resume the coroutine even before
