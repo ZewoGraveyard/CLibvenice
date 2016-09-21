@@ -33,6 +33,12 @@
 #include "stack.h"
 #include "utils.h"
 
+#ifdef __APPLE__
+#import <objc/runtime.h>
+#import <objc/message.h>
+static void *autoreleasePool = NULL;
+#endif
+
 volatile int mill_unoptimisable1 = 1;
 volatile void *mill_unoptimisable2 = NULL;
 
@@ -52,6 +58,13 @@ void goprepare(int count, size_t stack_size) {
 }
 
 int mill_suspend(void) {
+#ifdef __APPLE__
+    Class cls = objc_getClass("NSAutoreleasePool");
+    objc_msgSend(autoreleasePool, sel_getUid("drain"));
+    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
+    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
+#endif
+    
     /* Even if process never gets idle, we have to process external events
        once in a while. The external signal may very well be a deadline or
        a user-issued command that cancels the CPU intensive operation. */
@@ -64,22 +77,29 @@ int mill_suspend(void) {
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
     while(1) {
-        /* If there's a coroutine ready to be executed go for it. */
-        if(!mill_slist_empty(&mill_ready)) {
-            ++counter;
-            struct mill_slist_item *it = mill_slist_pop(&mill_ready);
-            mill_running = mill_cont(it, struct mill_cr, ready);
-            mill_jmp(&mill_running->ctx);
-        }
-        /*  Otherwise, we are going to wait for sleeping coroutines
-            and for external events. */
-        mill_wait(1);
-        mill_assert(!mill_slist_empty(&mill_ready));
-        counter = 0;
+            /* If there's a coroutine ready to be executed go for it. */
+            if(!mill_slist_empty(&mill_ready)) {
+                ++counter;
+                struct mill_slist_item *it = mill_slist_pop(&mill_ready);
+                mill_running = mill_cont(it, struct mill_cr, ready);
+                mill_jmp(&mill_running->ctx);
+            }
+            /*  Otherwise, we are going to wait for sleeping coroutines
+                and for external events. */
+            mill_wait(1);
+            mill_assert(!mill_slist_empty(&mill_ready));
+            counter = 0;
     }
 }
 
 void mill_resume(struct mill_cr *cr, int result) {
+#ifdef __APPLE__
+    Class cls = objc_getClass("NSAutoreleasePool");
+    objc_msgSend(autoreleasePool, sel_getUid("drain"));
+    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
+    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
+#endif
+    
     cr->result = result;
     cr->state = MILL_READY;
     mill_slist_push_back(&mill_ready, &cr->ready);
