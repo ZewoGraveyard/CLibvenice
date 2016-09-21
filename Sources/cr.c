@@ -83,7 +83,7 @@ void goprepare(int count, size_t stack_size) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     if(mill_slow(mill_hascrs())) {errno = EAGAIN; return;}
     /* Allocate any resources needed by the polling mechanism. */
     mill_poller_init();
@@ -109,18 +109,18 @@ int mill_suspend(void) {
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
     while(1) {
-       /* If there's a coroutine ready to be executed go for it. */
-       if(!mill_slist_empty(&mill_ready)) {
-           ++counter;
-           struct mill_slist_item *it = mill_slist_pop(&mill_ready);
-           mill_running = mill_cont(it, struct mill_cr, ready);
-           mill_jmp(&mill_running->ctx);
-       }
-       /*  Otherwise, we are going to wait for sleeping coroutines
-           and for external events. */
-       mill_wait(1);
-       mill_assert(!mill_slist_empty(&mill_ready));
-       counter = 0;
+        /* If there's a coroutine ready to be executed go for it. */
+        if(!mill_slist_empty(&mill_ready)) {
+            ++counter;
+            struct mill_slist_item *it = mill_slist_pop(&mill_ready);
+            mill_running = mill_cont(it, struct mill_cr, ready);
+            mill_jmp(&mill_running->ctx);
+        }
+        /*  Otherwise, we are going to wait for sleeping coroutines
+            and for external events. */
+        mill_wait(1);
+        mill_assert(!mill_slist_empty(&mill_ready));
+        counter = 0;
     }
 }
 
@@ -140,7 +140,7 @@ void *mill_go_prologue(const char *created) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     /* Ensure that debug functions are available whenever a single go()
      statement is present in the user's code. */
     mill_preserve_debug();
@@ -161,7 +161,7 @@ void mill_go_epilogue(void) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     mill_trace(NULL, "go() done");
     mill_unregister_cr(&mill_running->debug);
     mill_freestack(mill_running + 1);
@@ -175,7 +175,7 @@ void mill_yield(const char *current) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     mill_trace(current, "yield()");
     mill_set_current(&mill_running->debug, current);
     /* This looks fishy, but yes, we can resume the coroutine even before
