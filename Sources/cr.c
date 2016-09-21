@@ -34,9 +34,33 @@
 #include "utils.h"
 
 #ifdef __APPLE__
-#import <objc/runtime.h>
-#import <objc/message.h>
+#include <dlfcn.h>
+#include <objc/runtime.h>
+#include <objc/message.h>
 static void *autoreleasePool = NULL;
+
+static Class (*objc_getClass_fptr)(const char *name);
+static id (*objc_msgSend_fptr)(Class self, SEL, ...);
+static SEL (*sel_getUid_fptr)(const char *str);
+
+static int darwin_prepared = 0;
+void ensure_darwin_prepared() {
+    if (darwin_prepared) {
+        return;
+    }
+    void *handle = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
+    if(handle) {
+        objc_getClass_fptr = dlsym(handle, "objc_getClass");
+        objc_msgSend_fptr = dlsym(handle, "objc_msgSend");
+        sel_getUid_fptr = dlsym(handle, "sel_getUid");
+        darwin_prepared = 1;
+    }
+    
+    if (!darwin_prepared) {
+        printf("libmill failed to prepare for Darwin platform.");
+        mill_assert(0);
+    }
+}
 #endif
 
 volatile int mill_unoptimisable1 = 1;
@@ -59,10 +83,11 @@ void goprepare(int count, size_t stack_size) {
 
 int mill_suspend(void) {
 #ifdef __APPLE__
-    Class cls = objc_getClass("NSAutoreleasePool");
-    objc_msgSend(autoreleasePool, sel_getUid("drain"));
-    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
-    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
+    ensure_darwin_prepared();
+    Class cls = objc_getClass_fptr("NSAutoreleasePool");
+    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
+    autoreleasePool = objc_msgSend_fptr(cls, sel_getUid_fptr("alloc"));
+    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
 #endif
     
     /* Even if process never gets idle, we have to process external events
@@ -94,10 +119,11 @@ int mill_suspend(void) {
 
 void mill_resume(struct mill_cr *cr, int result) {
 #ifdef __APPLE__
-    Class cls = objc_getClass("NSAutoreleasePool");
-    objc_msgSend(autoreleasePool, sel_getUid("drain"));
-    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
-    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
+    ensure_darwin_prepared();
+    Class cls = objc_getClass_fptr("NSAutoreleasePool");
+    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
+    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
+    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
 #endif
     
     cr->result = result;
@@ -144,6 +170,9 @@ void mill_yield(const char *current) {
 }
 
 void co(void* ctx, void (*routine)(void*), const char *created) {
+#if __APPLE__
+    ensure_darwin_prepared();
+#endif
     void *mill_sp = mill_go_prologue(created);
     if(mill_sp) {
         int mill_anchor[mill_unoptimisable1];
