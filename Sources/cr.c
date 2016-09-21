@@ -34,40 +34,9 @@
 #include "utils.h"
 
 #ifdef __APPLE__
-#include <dlfcn.h>
-#include <objc/runtime.h>
-#include <objc/message.h>
-static id autoreleasePool = NULL;
-
-static Class (*objc_getClass_fptr)(const char *name);
-static id (*objc_msgSend_fptr)(id self, SEL, ...);
-static SEL (*sel_getUid_fptr)(const char *str);
-
-static int darwin_prepared = 0;
-void darwin_prepare() {
-    if (darwin_prepared) {
-        return;
-    }
-    void *handle = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
-    if(handle) {
-        objc_getClass_fptr = dlsym(handle, "objc_getClass");
-        objc_msgSend_fptr = dlsym(handle, "objc_msgSend");
-        sel_getUid_fptr = dlsym(handle, "sel_getUid");
-        darwin_prepared = 1;
-    }
-
-    if (!darwin_prepared) {
-        printf("libmill failed to prepare for Darwin platform.");
-        mill_assert(0);
-    }
-}
-void darwin_pool() {
-    darwin_prepare();
-    Class cls = objc_getClass_fptr("NSAutoreleasePool");
-    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
-    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
-    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
-}
+#import <objc/runtime.h>
+#import <objc/message.h>
+static void *autoreleasePool = NULL;
 #endif
 
 volatile int mill_unoptimisable1 = 1;
@@ -80,10 +49,6 @@ struct mill_cr *mill_running = &mill_main;
 static struct mill_slist mill_ready = {0};
 
 void goprepare(int count, size_t stack_size) {
-#ifdef __APPLE__
-    darwin_pool();
-#endif
-
     if(mill_slow(mill_hascrs())) {errno = EAGAIN; return;}
     /* Allocate any resources needed by the polling mechanism. */
     mill_poller_init();
@@ -94,9 +59,12 @@ void goprepare(int count, size_t stack_size) {
 
 int mill_suspend(void) {
 #ifdef __APPLE__
-    darwin_pool();
+    Class cls = objc_getClass("NSAutoreleasePool");
+    objc_msgSend(autoreleasePool, sel_getUid("drain"));
+    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
+    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
 #endif
-
+    
     /* Even if process never gets idle, we have to process external events
        once in a while. The external signal may very well be a deadline or
        a user-issued command that cancels the CPU intensive operation. */
@@ -109,26 +77,29 @@ int mill_suspend(void) {
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
     while(1) {
-        /* If there's a coroutine ready to be executed go for it. */
-        if(!mill_slist_empty(&mill_ready)) {
-            ++counter;
-            struct mill_slist_item *it = mill_slist_pop(&mill_ready);
-            mill_running = mill_cont(it, struct mill_cr, ready);
-            mill_jmp(&mill_running->ctx);
-        }
-        /*  Otherwise, we are going to wait for sleeping coroutines
-            and for external events. */
-        mill_wait(1);
-        mill_assert(!mill_slist_empty(&mill_ready));
-        counter = 0;
+            /* If there's a coroutine ready to be executed go for it. */
+            if(!mill_slist_empty(&mill_ready)) {
+                ++counter;
+                struct mill_slist_item *it = mill_slist_pop(&mill_ready);
+                mill_running = mill_cont(it, struct mill_cr, ready);
+                mill_jmp(&mill_running->ctx);
+            }
+            /*  Otherwise, we are going to wait for sleeping coroutines
+                and for external events. */
+            mill_wait(1);
+            mill_assert(!mill_slist_empty(&mill_ready));
+            counter = 0;
     }
 }
 
 void mill_resume(struct mill_cr *cr, int result) {
 #ifdef __APPLE__
-    darwin_pool();
+    Class cls = objc_getClass("NSAutoreleasePool");
+    objc_msgSend(autoreleasePool, sel_getUid("drain"));
+    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
+    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
 #endif
-
+    
     cr->result = result;
     cr->state = MILL_READY;
     mill_slist_push_back(&mill_ready, &cr->ready);
@@ -137,10 +108,6 @@ void mill_resume(struct mill_cr *cr, int result) {
 /* The intial part of go(). Starts the new coroutine.
    Returns the pointer to the top of its stack. */
 void *mill_go_prologue(const char *created) {
-#ifdef __APPLE__
-    darwin_pool();
-#endif
-
     /* Ensure that debug functions are available whenever a single go()
      statement is present in the user's code. */
     mill_preserve_debug();
@@ -158,10 +125,6 @@ void *mill_go_prologue(const char *created) {
 
 /* The final part of go(). Cleans up after the coroutine is finished. */
 void mill_go_epilogue(void) {
-#ifdef __APPLE__
-    darwin_pool();
-#endif
-
     mill_trace(NULL, "go() done");
     mill_unregister_cr(&mill_running->debug);
     mill_freestack(mill_running + 1);
@@ -172,10 +135,6 @@ void mill_go_epilogue(void) {
 }
 
 void mill_yield(const char *current) {
-#ifdef __APPLE__
-    darwin_pool();
-#endif
-
     mill_trace(current, "yield()");
     mill_set_current(&mill_running->debug, current);
     /* This looks fishy, but yes, we can resume the coroutine even before
@@ -185,10 +144,6 @@ void mill_yield(const char *current) {
 }
 
 void co(void* ctx, void (*routine)(void*), const char *created) {
-#ifdef __APPLE__
-    darwin_pool();
-#endif
-
     void *mill_sp = mill_go_prologue(created);
     if(mill_sp) {
         int mill_anchor[mill_unoptimisable1];
