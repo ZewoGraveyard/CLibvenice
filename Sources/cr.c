@@ -55,7 +55,7 @@ void darwin_prepare() {
         sel_getUid_fptr = dlsym(handle, "sel_getUid");
         darwin_prepared = 1;
     }
-    
+
     if (!darwin_prepared) {
         printf("libmill failed to prepare for Darwin platform.");
         mill_assert(0);
@@ -96,7 +96,7 @@ int mill_suspend(void) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     /* Even if process never gets idle, we have to process external events
        once in a while. The external signal may very well be a deadline or
        a user-issued command that cancels the CPU intensive operation. */
@@ -109,18 +109,18 @@ int mill_suspend(void) {
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
     while(1) {
-            /* If there's a coroutine ready to be executed go for it. */
-            if(!mill_slist_empty(&mill_ready)) {
-                ++counter;
-                struct mill_slist_item *it = mill_slist_pop(&mill_ready);
-                mill_running = mill_cont(it, struct mill_cr, ready);
-                mill_jmp(&mill_running->ctx);
-            }
-            /*  Otherwise, we are going to wait for sleeping coroutines
-                and for external events. */
-            mill_wait(1);
-            mill_assert(!mill_slist_empty(&mill_ready));
-            counter = 0;
+       /* If there's a coroutine ready to be executed go for it. */
+       if(!mill_slist_empty(&mill_ready)) {
+           ++counter;
+           struct mill_slist_item *it = mill_slist_pop(&mill_ready);
+           mill_running = mill_cont(it, struct mill_cr, ready);
+           mill_jmp(&mill_running->ctx);
+       }
+       /*  Otherwise, we are going to wait for sleeping coroutines
+           and for external events. */
+       mill_wait(1);
+       mill_assert(!mill_slist_empty(&mill_ready));
+       counter = 0;
     }
 }
 
@@ -128,7 +128,7 @@ void mill_resume(struct mill_cr *cr, int result) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     cr->result = result;
     cr->state = MILL_READY;
     mill_slist_push_back(&mill_ready, &cr->ready);
@@ -188,7 +188,7 @@ void co(void* ctx, void (*routine)(void*), const char *created) {
 #ifdef __APPLE__
     darwin_pool();
 #endif
-    
+
     void *mill_sp = mill_go_prologue(created);
     if(mill_sp) {
         int mill_anchor[mill_unoptimisable1];
