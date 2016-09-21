@@ -44,7 +44,7 @@ static id (*objc_msgSend_fptr)(Class self, SEL, ...);
 static SEL (*sel_getUid_fptr)(const char *str);
 
 static int darwin_prepared = 0;
-void ensure_darwin_prepared() {
+void darwin_prepare() {
     if (darwin_prepared) {
         return;
     }
@@ -60,6 +60,13 @@ void ensure_darwin_prepared() {
         printf("libmill failed to prepare for Darwin platform.");
         mill_assert(0);
     }
+}
+void darwin_pool() {
+    darwin_prepare();
+    Class cls = objc_getClass_fptr("NSAutoreleasePool");
+    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
+    autoreleasePool = objc_msgSend_fptr(cls, sel_getUid_fptr("alloc"));
+    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
 }
 #endif
 
@@ -83,11 +90,7 @@ void goprepare(int count, size_t stack_size) {
 
 int mill_suspend(void) {
 #ifdef __APPLE__
-    ensure_darwin_prepared();
-    Class cls = objc_getClass_fptr("NSAutoreleasePool");
-    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
-    autoreleasePool = objc_msgSend_fptr(cls, sel_getUid_fptr("alloc"));
-    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
+    darwin_pool();
 #endif
     
     /* Even if process never gets idle, we have to process external events
@@ -119,11 +122,7 @@ int mill_suspend(void) {
 
 void mill_resume(struct mill_cr *cr, int result) {
 #ifdef __APPLE__
-    ensure_darwin_prepared();
-    Class cls = objc_getClass_fptr("NSAutoreleasePool");
-    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
-    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
-    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
+    darwin_pool();
 #endif
     
     cr->result = result;
@@ -170,9 +169,10 @@ void mill_yield(const char *current) {
 }
 
 void co(void* ctx, void (*routine)(void*), const char *created) {
-#if __APPLE__
-    ensure_darwin_prepared();
+#ifdef __APPLE__
+    darwin_pool();
 #endif
+    
     void *mill_sp = mill_go_prologue(created);
     if(mill_sp) {
         int mill_anchor[mill_unoptimisable1];
