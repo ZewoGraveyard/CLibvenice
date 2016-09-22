@@ -33,10 +33,17 @@
 #include "stack.h"
 #include "utils.h"
 
+/* On darwin most foundation reference types leak memory due to a lack of a autorelease
+   pool. Because of this we need to push and pop the pool frequently during libmill's
+   context switches. This dynamically finds the objc runtime functions and inserts
+   the push/pop calls appropriately. If any part of the rest of the application adds its own
+   autorelease pool it must do so that it does not span across a libmill context switch
+   otherwise the objc runtime will throw a fatal error. */
 #ifdef __APPLE__
 #include <dlfcn.h>
 #include <objc/runtime.h>
 #include <objc/message.h>
+#include <string.h>
 static void *autoreleasePool = NULL;
 static int runningTests = 0;
 static int darwinPrepared = 0;
@@ -48,20 +55,43 @@ static SEL (*sel_getUid_fptr)(const char *str);
 static void* (*objc_autoreleasePoolPush_fptr)(void);
 static void (*objc_autoreleasePoolPop_fptr)(void *ctx);
 
+/* Prepare the darwin environment, this mainly looks up Objective-C runtime
+   functions and also determines whether or not the process is running from
+   XCTest. The autorelease pools will only be added if not running in XCTest
+   because XCTest runs it's own autorelease pool around each test and if we
+   insert our own we corrupt the runtime. It's hard to fix because of how
+   libmill switches contexts. */
 void darwin_prepare() {
     if (darwinPrepared) {
         return;
     }
     void *handle = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
     if(handle) {
+        /* Using the dlsym find the objc runtime functions we need */
         objc_getClass_fptr = dlsym(handle, "objc_getClass");
         objc_msgSend_fptr = dlsym(handle, "objc_msgSend");
         sel_getUid_fptr = dlsym(handle, "sel_getUid");
         objc_autoreleasePoolPush_fptr = dlsym(handle, "objc_autoreleasePoolPush");
         objc_autoreleasePoolPop_fptr = dlsym(handle, "objc_autoreleasePoolPop");
         
+        /* This is a really elogated way to determine if we're running inside of XCTest.
+           Because some users may accidentally import XCTest into their binary we don't
+           just want to do class detection.
+        
+           This grabs [[[[NSProcessInfo processInfo] arguments] description] UTF8String]
+           and searches it for /Xcode/Agents/xctest OR /usr/bin/xctest OR PackageTests.xctest
+           in the future these searches may not be valid and need to be tweaked. */
+        Class processInfoClass = objc_getClass_fptr("NSProcessInfo");
+        id processInfo = objc_msgSend_fptr((id)processInfoClass, sel_getUid_fptr("processInfo"));
+        id arguments = objc_msgSend_fptr(processInfo, sel_getUid_fptr("arguments"));
+        id description = objc_msgSend_fptr(arguments, sel_getUid_fptr("description"));
+        const char *chars = (const char *)objc_msgSend_fptr(description, sel_getUid_fptr("UTF8String"));
+        
+        runningTests = (strstr(chars, "/Xcode/Agents/xctest") ||
+                        strstr(chars, "/usr/bin/xctest") ||
+                        strstr(chars, "PackageTests.xctest"));
+        
         darwinPrepared = 1;
-        runningTests = (objc_getClass_fptr("XCTestDriver") != NULL);
     }
     
     if (!darwinPrepared) {
