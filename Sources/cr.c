@@ -34,9 +34,53 @@
 #include "utils.h"
 
 #ifdef __APPLE__
-#import <objc/runtime.h>
-#import <objc/message.h>
+#include <dlfcn.h>
+#include <objc/runtime.h>
+#include <objc/message.h>
 static void *autoreleasePool = NULL;
+
+static Class (*objc_getClass_fptr)(const char *name);
+static id (*objc_msgSend_fptr)(id self, SEL, ...);
+static SEL (*sel_getUid_fptr)(const char *str);
+
+static void* (*objc_autoreleasePoolPush_fptr)(void);
+static void (*objc_autoreleasePoolPop_fptr)(void *ctx);
+
+static int darwin_prepared = 0;
+void darwin_prepare() {
+    if (darwin_prepared) {
+        return;
+    }
+    void *handle = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
+    if(handle) {
+        objc_getClass_fptr = dlsym(handle, "objc_getClass");
+        objc_msgSend_fptr = dlsym(handle, "objc_msgSend");
+        sel_getUid_fptr = dlsym(handle, "sel_getUid");
+        objc_autoreleasePoolPush_fptr = dlsym(handle, "objc_autoreleasePoolPush");
+        objc_autoreleasePoolPop_fptr = dlsym(handle, "objc_autoreleasePoolPop");
+        darwin_prepared = 1;
+    }
+    
+    if (!darwin_prepared) {
+        printf("libmill failed to prepare for Darwin platform.");
+        mill_assert(0);
+    }
+}
+void darwin_pool_push() {
+    darwin_prepare();
+    //    Class cls = objc_getClass_fptr("NSAutoreleasePool");
+    //    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
+    //    autoreleasePool = objc_msgSend_fptr((id)autoreleasePool, sel_getUid_fptr("init"));
+    autoreleasePool = objc_autoreleasePoolPush_fptr();
+}
+void darwin_pool_pop() {
+    darwin_prepare();
+    //    objc_msgSend_fptr((id)autoreleasePool, sel_getUid_fptr("drain"));
+    if (autoreleasePool) {
+        objc_autoreleasePoolPop_fptr(autoreleasePool);
+        autoreleasePool = NULL;
+    }
+}
 #endif
 
 volatile int mill_unoptimisable1 = 1;
@@ -58,13 +102,6 @@ void goprepare(int count, size_t stack_size) {
 }
 
 int mill_suspend(void) {
-#ifdef __APPLE__
-    Class cls = objc_getClass("NSAutoreleasePool");
-    objc_msgSend(autoreleasePool, sel_getUid("drain"));
-    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
-    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
-#endif
-    
     /* Even if process never gets idle, we have to process external events
        once in a while. The external signal may very well be a deadline or
        a user-issued command that cancels the CPU intensive operation. */
@@ -74,32 +111,31 @@ int mill_suspend(void) {
         counter = 0;
     }
     /* Store the context of the current coroutine, if any. */
+#if __APPLE__
+    darwin_pool_pop();
+#endif
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
     while(1) {
-            /* If there's a coroutine ready to be executed go for it. */
-            if(!mill_slist_empty(&mill_ready)) {
-                ++counter;
-                struct mill_slist_item *it = mill_slist_pop(&mill_ready);
-                mill_running = mill_cont(it, struct mill_cr, ready);
-                mill_jmp(&mill_running->ctx);
-            }
-            /*  Otherwise, we are going to wait for sleeping coroutines
-                and for external events. */
-            mill_wait(1);
-            mill_assert(!mill_slist_empty(&mill_ready));
-            counter = 0;
+        /* If there's a coroutine ready to be executed go for it. */
+        if(!mill_slist_empty(&mill_ready)) {
+            ++counter;
+            struct mill_slist_item *it = mill_slist_pop(&mill_ready);
+            mill_running = mill_cont(it, struct mill_cr, ready);
+            mill_jmp(&mill_running->ctx);
+#if __APPLE__
+            darwin_pool_push();
+#endif
+        }
+        /*  Otherwise, we are going to wait for sleeping coroutines
+            and for external events. */
+        mill_wait(1);
+        mill_assert(!mill_slist_empty(&mill_ready));
+        counter = 0;
     }
 }
 
 void mill_resume(struct mill_cr *cr, int result) {
-#ifdef __APPLE__
-    Class cls = objc_getClass("NSAutoreleasePool");
-    objc_msgSend(autoreleasePool, sel_getUid("drain"));
-    autoreleasePool = objc_msgSend((id)cls, sel_getUid("alloc"));
-    autoreleasePool = objc_msgSend(autoreleasePool, sel_getUid("init"));
-#endif
-    
     cr->result = result;
     cr->state = MILL_READY;
     mill_slist_push_back(&mill_ready, &cr->ready);
@@ -116,6 +152,9 @@ void *mill_go_prologue(const char *created) {
     mill_register_cr(&cr->debug, created);
     mill_trace(created, "{%d}=go()", (int)cr->debug.id);
     /* Suspend the parent coroutine and make the new one running. */
+#if __APPLE__
+    darwin_pool_pop();
+#endif
     if(mill_setjmp(&mill_running->ctx))
         return NULL;
     mill_resume(mill_running, 0);
