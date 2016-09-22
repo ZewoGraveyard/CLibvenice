@@ -99,7 +99,7 @@ void darwin_prepare() {
         mill_assert(0);
     }
 }
-void darwin_pool_push() {
+static inline void darwin_pool_push() {
     darwin_prepare();
     if (runningTests) {
         return;
@@ -108,7 +108,7 @@ void darwin_pool_push() {
     mill_assert(!autoreleasePool);
     autoreleasePool = objc_autoreleasePoolPush_fptr();
 }
-void darwin_pool_pop() {
+static inline void darwin_pool_pop() {
     darwin_prepare();
     if (runningTests) {
         return;
@@ -118,6 +118,21 @@ void darwin_pool_pop() {
         objc_autoreleasePoolPop_fptr(autoreleasePool);
         autoreleasePool = NULL;
     }
+}
+static inline void darwin_pool_pop_push() {
+    darwin_prepare();
+    
+    if (runningTests) {
+        return;
+    }
+    
+    if (autoreleasePool) {
+        objc_autoreleasePoolPop_fptr(autoreleasePool);
+        autoreleasePool = NULL;
+    }
+    
+    mill_assert(!autoreleasePool);
+    autoreleasePool = objc_autoreleasePoolPush_fptr();
 }
 #endif
 
@@ -150,8 +165,7 @@ int mill_suspend(void) {
     }
     
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool_pop_push();
 #endif
     
     /* Store the context of the current coroutine, if any. */
@@ -165,8 +179,7 @@ int mill_suspend(void) {
             mill_running = mill_cont(it, struct mill_cr, ready);
             mill_jmp(&mill_running->ctx);
 #ifdef __APPLE__
-            darwin_pool_pop();
-            darwin_pool_push();
+            darwin_pool_pop_push();
 #endif
         }
         /*  Otherwise, we are going to wait for sleeping coroutines
@@ -179,8 +192,7 @@ int mill_suspend(void) {
 
 void mill_resume(struct mill_cr *cr, int result) {
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool_pop_push();
 #endif
     
     cr->result = result;
@@ -192,8 +204,7 @@ void mill_resume(struct mill_cr *cr, int result) {
    Returns the pointer to the top of its stack. */
 void *mill_go_prologue(const char *created) {
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool_pop_push();
 #endif
     
     /* Ensure that debug functions are available whenever a single go()
@@ -214,8 +225,7 @@ void *mill_go_prologue(const char *created) {
 /* The final part of go(). Cleans up after the coroutine is finished. */
 void mill_go_epilogue(void) {
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool_pop_push();
 #endif
     
     mill_trace(NULL, "go() done");
