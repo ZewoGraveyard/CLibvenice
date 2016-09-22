@@ -33,91 +33,40 @@
 #include "stack.h"
 #include "utils.h"
 
-/* On darwin most foundation reference types leak memory due to a lack of a autorelease
-   pool. Because of this we need to push and pop the pool frequently during libmill's
-   context switches. This dynamically finds the objc runtime functions and inserts
-   the push/pop calls appropriately. If any part of the rest of the application adds its own
-   autorelease pool it must do so that it does not span across a libmill context switch
-   otherwise the objc runtime will throw a fatal error. */
 #ifdef __APPLE__
 #include <dlfcn.h>
 #include <objc/runtime.h>
 #include <objc/message.h>
-#include <string.h>
-static void *autoreleasePool = NULL;
-static int runningTests = 0;
-static int darwinPrepared = 0;
+static id autoreleasePool = NULL;
 
 static Class (*objc_getClass_fptr)(const char *name);
 static id (*objc_msgSend_fptr)(id self, SEL, ...);
 static SEL (*sel_getUid_fptr)(const char *str);
 
-static void* (*objc_autoreleasePoolPush_fptr)(void);
-static void (*objc_autoreleasePoolPop_fptr)(void *ctx);
-
-/* Prepare the darwin environment, this mainly looks up Objective-C runtime
-   functions and also determines whether or not the process is running from
-   XCTest. The autorelease pools will only be added if not running in XCTest
-   because XCTest runs it's own autorelease pool around each test and if we
-   insert our own we corrupt the runtime. It's hard to fix because of how
-   libmill switches contexts. */
+static int darwin_prepared = 0;
 void darwin_prepare() {
-    if (darwinPrepared) {
+    if (darwin_prepared) {
         return;
     }
     void *handle = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
     if(handle) {
-        /* Using the dlsym find the objc runtime functions we need */
         objc_getClass_fptr = dlsym(handle, "objc_getClass");
         objc_msgSend_fptr = dlsym(handle, "objc_msgSend");
         sel_getUid_fptr = dlsym(handle, "sel_getUid");
-        objc_autoreleasePoolPush_fptr = dlsym(handle, "objc_autoreleasePoolPush");
-        objc_autoreleasePoolPop_fptr = dlsym(handle, "objc_autoreleasePoolPop");
-        
-        /* This is a really elogated way to determine if we're running inside of XCTest.
-           Because some users may accidentally import XCTest into their binary we don't
-           just want to do class detection.
-        
-           This grabs [[[[NSProcessInfo processInfo] arguments] description] UTF8String]
-           and searches it for /Xcode/Agents/xctest OR /usr/bin/xctest OR PackageTests.xctest
-           in the future these searches may not be valid and need to be tweaked. */
-        Class processInfoClass = objc_getClass_fptr("NSProcessInfo");
-        id processInfo = objc_msgSend_fptr((id)processInfoClass, sel_getUid_fptr("processInfo"));
-        id arguments = objc_msgSend_fptr(processInfo, sel_getUid_fptr("arguments"));
-        id description = objc_msgSend_fptr(arguments, sel_getUid_fptr("description"));
-        const char *chars = (const char *)objc_msgSend_fptr(description, sel_getUid_fptr("UTF8String"));
-        
-        runningTests = (strstr(chars, "/Xcode/Agents/xctest") ||
-                        strstr(chars, "/usr/bin/xctest") ||
-                        strstr(chars, "PackageTests.xctest"));
-        
-        darwinPrepared = 1;
+        darwin_prepared = 1;
     }
-    
-    if (!darwinPrepared) {
+
+    if (!darwin_prepared) {
         printf("libmill failed to prepare for Darwin platform.");
         mill_assert(0);
     }
 }
-void darwin_pool_push() {
+void darwin_pool() {
     darwin_prepare();
-    if (runningTests) {
-        return;
-    }
-    
-    mill_assert(!autoreleasePool);
-    autoreleasePool = objc_autoreleasePoolPush_fptr();
-}
-void darwin_pool_pop() {
-    darwin_prepare();
-    if (runningTests) {
-        return;
-    }
-    
-    if (autoreleasePool) {
-        objc_autoreleasePoolPop_fptr(autoreleasePool);
-        autoreleasePool = NULL;
-    }
+    Class cls = objc_getClass_fptr("NSAutoreleasePool");
+    objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("drain"));
+    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
+    autoreleasePool = objc_msgSend_fptr(autoreleasePool, sel_getUid_fptr("init"));
 }
 #endif
 
@@ -131,6 +80,10 @@ struct mill_cr *mill_running = &mill_main;
 static struct mill_slist mill_ready = {0};
 
 void goprepare(int count, size_t stack_size) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+
     if(mill_slow(mill_hascrs())) {errno = EAGAIN; return;}
     /* Allocate any resources needed by the polling mechanism. */
     mill_poller_init();
@@ -140,6 +93,10 @@ void goprepare(int count, size_t stack_size) {
 }
 
 int mill_suspend(void) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+
     /* Even if process never gets idle, we have to process external events
        once in a while. The external signal may very well be a deadline or
        a user-issued command that cancels the CPU intensive operation. */
@@ -148,12 +105,6 @@ int mill_suspend(void) {
         mill_wait(0);
         counter = 0;
     }
-    
-#ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
-#endif
-    
     /* Store the context of the current coroutine, if any. */
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
@@ -164,10 +115,6 @@ int mill_suspend(void) {
             struct mill_slist_item *it = mill_slist_pop(&mill_ready);
             mill_running = mill_cont(it, struct mill_cr, ready);
             mill_jmp(&mill_running->ctx);
-#ifdef __APPLE__
-            darwin_pool_pop();
-            darwin_pool_push();
-#endif
         }
         /*  Otherwise, we are going to wait for sleeping coroutines
             and for external events. */
@@ -179,10 +126,9 @@ int mill_suspend(void) {
 
 void mill_resume(struct mill_cr *cr, int result) {
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool();
 #endif
-    
+
     cr->result = result;
     cr->state = MILL_READY;
     mill_slist_push_back(&mill_ready, &cr->ready);
@@ -192,10 +138,9 @@ void mill_resume(struct mill_cr *cr, int result) {
    Returns the pointer to the top of its stack. */
 void *mill_go_prologue(const char *created) {
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool();
 #endif
-    
+
     /* Ensure that debug functions are available whenever a single go()
      statement is present in the user's code. */
     mill_preserve_debug();
@@ -214,10 +159,9 @@ void *mill_go_prologue(const char *created) {
 /* The final part of go(). Cleans up after the coroutine is finished. */
 void mill_go_epilogue(void) {
 #ifdef __APPLE__
-    darwin_pool_pop();
-    darwin_pool_push();
+    darwin_pool();
 #endif
-    
+
     mill_trace(NULL, "go() done");
     mill_unregister_cr(&mill_running->debug);
     mill_freestack(mill_running + 1);
@@ -228,6 +172,10 @@ void mill_go_epilogue(void) {
 }
 
 void mill_yield(const char *current) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+
     mill_trace(current, "yield()");
     mill_set_current(&mill_running->debug, current);
     /* This looks fishy, but yes, we can resume the coroutine even before
@@ -237,6 +185,10 @@ void mill_yield(const char *current) {
 }
 
 void co(void* ctx, void (*routine)(void*), const char *created) {
+#ifdef __APPLE__
+    darwin_pool();
+#endif
+
     void *mill_sp = mill_go_prologue(created);
     if(mill_sp) {
         int mill_anchor[mill_unoptimisable1];
