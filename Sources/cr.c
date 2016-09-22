@@ -38,6 +38,8 @@
 #include <objc/runtime.h>
 #include <objc/message.h>
 static void *autoreleasePool = NULL;
+static int runningTests = 0;
+static int darwinPrepared = 0;
 
 static Class (*objc_getClass_fptr)(const char *name);
 static id (*objc_msgSend_fptr)(id self, SEL, ...);
@@ -46,9 +48,8 @@ static SEL (*sel_getUid_fptr)(const char *str);
 static void* (*objc_autoreleasePoolPush_fptr)(void);
 static void (*objc_autoreleasePoolPop_fptr)(void *ctx);
 
-static int darwin_prepared = 0;
 void darwin_prepare() {
-    if (darwin_prepared) {
+    if (darwinPrepared) {
         return;
     }
     void *handle = dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL);
@@ -58,24 +59,31 @@ void darwin_prepare() {
         sel_getUid_fptr = dlsym(handle, "sel_getUid");
         objc_autoreleasePoolPush_fptr = dlsym(handle, "objc_autoreleasePoolPush");
         objc_autoreleasePoolPop_fptr = dlsym(handle, "objc_autoreleasePoolPop");
-        darwin_prepared = 1;
+        
+        darwinPrepared = 1;
+        runningTests = (objc_getClass_fptr("XCTestDriver") != NULL);
     }
     
-    if (!darwin_prepared) {
+    if (!darwinPrepared) {
         printf("libmill failed to prepare for Darwin platform.");
         mill_assert(0);
     }
 }
 void darwin_pool_push() {
     darwin_prepare();
-    //    Class cls = objc_getClass_fptr("NSAutoreleasePool");
-    //    autoreleasePool = objc_msgSend_fptr((id)cls, sel_getUid_fptr("alloc"));
-    //    autoreleasePool = objc_msgSend_fptr((id)autoreleasePool, sel_getUid_fptr("init"));
+    if (runningTests) {
+        return;
+    }
+    
+    mill_assert(!autoreleasePool);
     autoreleasePool = objc_autoreleasePoolPush_fptr();
 }
 void darwin_pool_pop() {
     darwin_prepare();
-    //    objc_msgSend_fptr((id)autoreleasePool, sel_getUid_fptr("drain"));
+    if (runningTests) {
+        return;
+    }
+    
     if (autoreleasePool) {
         objc_autoreleasePoolPop_fptr(autoreleasePool);
         autoreleasePool = NULL;
@@ -110,10 +118,13 @@ int mill_suspend(void) {
         mill_wait(0);
         counter = 0;
     }
-    /* Store the context of the current coroutine, if any. */
-#if __APPLE__
+    
+#ifdef __APPLE__
     darwin_pool_pop();
+    darwin_pool_push();
 #endif
+    
+    /* Store the context of the current coroutine, if any. */
     if(mill_running && mill_setjmp(&mill_running->ctx))
         return mill_running->result;
     while(1) {
@@ -123,7 +134,8 @@ int mill_suspend(void) {
             struct mill_slist_item *it = mill_slist_pop(&mill_ready);
             mill_running = mill_cont(it, struct mill_cr, ready);
             mill_jmp(&mill_running->ctx);
-#if __APPLE__
+#ifdef __APPLE__
+            darwin_pool_pop();
             darwin_pool_push();
 #endif
         }
@@ -136,6 +148,11 @@ int mill_suspend(void) {
 }
 
 void mill_resume(struct mill_cr *cr, int result) {
+#ifdef __APPLE__
+    darwin_pool_pop();
+    darwin_pool_push();
+#endif
+    
     cr->result = result;
     cr->state = MILL_READY;
     mill_slist_push_back(&mill_ready, &cr->ready);
@@ -144,6 +161,11 @@ void mill_resume(struct mill_cr *cr, int result) {
 /* The intial part of go(). Starts the new coroutine.
    Returns the pointer to the top of its stack. */
 void *mill_go_prologue(const char *created) {
+#ifdef __APPLE__
+    darwin_pool_pop();
+    darwin_pool_push();
+#endif
+    
     /* Ensure that debug functions are available whenever a single go()
      statement is present in the user's code. */
     mill_preserve_debug();
@@ -152,9 +174,6 @@ void *mill_go_prologue(const char *created) {
     mill_register_cr(&cr->debug, created);
     mill_trace(created, "{%d}=go()", (int)cr->debug.id);
     /* Suspend the parent coroutine and make the new one running. */
-#if __APPLE__
-    darwin_pool_pop();
-#endif
     if(mill_setjmp(&mill_running->ctx))
         return NULL;
     mill_resume(mill_running, 0);
@@ -164,6 +183,11 @@ void *mill_go_prologue(const char *created) {
 
 /* The final part of go(). Cleans up after the coroutine is finished. */
 void mill_go_epilogue(void) {
+#ifdef __APPLE__
+    darwin_pool_pop();
+    darwin_pool_push();
+#endif
+    
     mill_trace(NULL, "go() done");
     mill_unregister_cr(&mill_running->debug);
     mill_freestack(mill_running + 1);
