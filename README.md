@@ -1,5 +1,4 @@
-CLibvenice
-==========
+# CLibvenice
 
 [![Platform][platform-badge]][platform-url]
 [![License][mit-badge]][mit-url]
@@ -13,8 +12,7 @@ CLibvenice is a fork of [libmill](http://libmill.org).
 
 We have an amazing community of open and welcoming developers. Join us on [Slack][slack-url] to get to know us!
 
-License
--------
+## License
 
 All **Zewo** modules are released under the MIT license. See LICENSE for details.
 
