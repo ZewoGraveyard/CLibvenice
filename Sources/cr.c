@@ -178,10 +178,8 @@ int mill_suspend(void) {
 #endif
     
     /* Store the context of the current coroutine, if any. */
-    if(mill_running) {
-        mill_ctx ctx = mill_getctx_();
-        if (mill_setjmp_(ctx))
-            return mill_running->result;
+    if(mill_running && mill_setjmp_(mill_getctx_())) {
+        return mill_running->result;
     }
     while(1) {
         /* If there's a coroutine ready to be executed go for it. */
