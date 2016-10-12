@@ -61,7 +61,7 @@ void mill_register_chan(struct mill_debug_chan *ch, const char *created);
 void mill_unregister_chan(struct mill_debug_chan *ch);
 
 /* While doing a blocking operation coroutine should register where
- the operation was invoked from. */
+   the operation was invoked from. */
 void mill_set_current(struct mill_debug_cr *cr, const char *current);
 
 extern int mill_tracelevel;

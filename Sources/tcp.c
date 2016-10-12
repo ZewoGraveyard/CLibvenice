@@ -31,6 +31,10 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#if defined __linux__
+    #include <sys/sendfile.h>
+#endif
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "debug.h"
@@ -263,6 +267,70 @@ tcpsock tcpconnect(ipaddr addr, int64_t deadline) {
     tcpconn_init(conn, s);
     errno = 0;
     return (tcpsock)conn;
+}
+
+void tcpsendfile(tcpsock s, const char *filepath, int64_t deadline) {
+    if(s->type != MILL_TCPCONN)
+        mill_panic("trying to send to an unconnected socket");
+    struct mill_tcpconn *conn = (struct mill_tcpconn*)s;
+    int fd;
+    struct stat stat_buf;
+    off_t offset = 0;
+    off_t len = 0;
+    int rc;
+
+    fd = open(filepath, O_RDONLY);
+
+    if (fd == -1) {
+        return;
+    }
+
+    rc = fstat(fd, &stat_buf);
+
+    if (rc == -1) {
+        return;
+    }
+
+    tcpflush(s, deadline);
+    size_t remaining = stat_buf.st_size;
+    len = remaining;
+
+    while (remaining) {
+        rc = sendfile(fd, conn->fd, offset, &len, NULL, 0);
+
+        if (rc == -1) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                int err = errno;
+                close(fd);
+                errno = err;
+                return;
+            }
+
+            int rc = fdwait(conn->fd, FDW_OUT, deadline);
+
+            if (rc == 0) {
+                close(fd);
+                errno = ETIMEDOUT;
+                return;
+            }
+            
+            mill_assert(rc == FDW_OUT);
+            continue;
+        }
+
+        if (len == 0) {
+            close(fd);
+            errno = 0;
+            return;
+        }
+
+        remaining -= len;
+        offset += len;
+        len = remaining;
+    }
+
+    close(fd);
+    errno = 0;
 }
 
 size_t tcpsend(tcpsock s, const void *buf, size_t len, int64_t deadline) {

@@ -102,7 +102,11 @@ void goredump(void) {
                 sprintf(buf, "msleep()");
                 break;
             case MILL_FDWAIT:
-                sprintf(buf, "fdwait(%d)", -1);
+                sprintf(buf, "fdwait(%d, %s)", cr->fd,
+                        (cr->events & FDW_IN) &&
+                        (cr->events & FDW_OUT) ? "FDW_IN | FDW_OUT" :
+                        cr->events & FDW_IN ? "FDW_IN" :
+                        cr->events & FDW_OUT ? "FDW_OUT" : 0);
                 break;
             case MILL_CHR:
             case MILL_CHS:
@@ -187,8 +191,9 @@ void goredump(void) {
             cl = mill_cont(mill_list_next(&cl->epitem),
                            struct mill_clause, epitem);
         }
-        fprintf(stderr, "%-42s %-5s %s\n",
+        fprintf(stderr, "%-42s %-5d %-5s %s\n",
                 buf,
+                0,
                 ch->done ? "yes" : "no",
                 ch->debug.created);
     }
@@ -232,7 +237,7 @@ void mill_trace_(const char *location, const char *format, ...) {
 
 void mill_preserve_debug(void) {
     /* Do nothing, but trick the compiler into thinking that the debug
-     functions are being used so that it does not optimise them away. */
+       functions are being used so that it does not optimise them away. */
     static volatile int unoptimisable = 1;
     if(unoptimisable)
         return;
@@ -244,4 +249,3 @@ int mill_hascrs(void) {
     return (mill_all_crs.first == &mill_main.debug.item &&
             mill_all_crs.last == &mill_main.debug.item) ? 0 : 1;
 }
-
