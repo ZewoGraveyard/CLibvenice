@@ -73,35 +73,16 @@ void mill_poller_init(void) {
     errno = 0;
 }
 
-pid_t mill_fork(void) {
-    pid_t pid = fork();
-    if(pid != 0)
-        return pid;
-    /* In the child process we have to create a new kernel-side pollset,
-       identical to the one in the parent process, yet not sharing its
-       destiny. */
+void mill_poller_postfork(void) {
     if(mill_efd != -1) {
         int rc = close(mill_efd);
         mill_assert(rc == 0);
-        mill_efd = epoll_create(1);
-        mill_assert(mill_efd >= 0);
-        int fd;
-        for(fd = 0; fd != mill_ncrpairs; ++fd) {
-            if(mill_crpairs[fd].currevs) {
-                struct epoll_event ev;
-                ev.data.fd = fd;
-                ev.events = 0;
-                if(mill_crpairs[fd].currevs & FDW_IN)
-                    ev.events |= EPOLLIN;
-                if(mill_crpairs[fd].currevs & FDW_OUT)
-                    ev.events |= EPOLLOUT;
-                rc = epoll_ctl(mill_efd, EPOLL_CTL_ADD, fd, &ev);
-                mill_assert(rc == 0);
-            }
-        }
     }
-    errno = 0;
-    return 0;
+    mill_efd = -1;
+    mill_crpairs = NULL;
+    mill_ncrpairs = 0;
+    mill_changelist = MILL_ENDLIST;
+    mill_poller_init();
 }
 
 static void mill_poller_add(int fd, int events) {
@@ -124,12 +105,18 @@ static void mill_poller_add(int fd, int events) {
     }
 }
 
-static void mill_poller_rm(int fd, int events) {
+static void mill_poller_rm(struct mill_cr *cr) {
+    int fd = cr->fd;
+    mill_assert(fd != -1);
     struct mill_crpair *crp = &mill_crpairs[fd];
-    if(events & FDW_IN)
+    if(crp->in == cr) {
         crp->in = NULL;
-    if(events & FDW_OUT)
+        cr->fd = -1;
+    }
+    if(crp->out == cr) {
         crp->out = NULL;
+        cr->fd = -1;
+    }
     if(!crp->next) {
         crp->next = mill_changelist;
         mill_changelist = fd + 1;
@@ -211,21 +198,29 @@ static int mill_poller_wait(int timeout) {
         }
         /* Resume the blocked coroutines. */  
         if(crp->in == crp->out) {
-            mill_resume(crp->in, inevents | outevents);
-            mill_poller_rm(evs[i].data.fd, FDW_IN | FDW_OUT);
+            struct mill_cr *cr = crp->in;
+            mill_resume(cr, inevents | outevents);
+            mill_poller_rm(cr);
+            if(mill_timer_enabled(&cr->timer))
+                mill_timer_rm(&cr->timer);
         }
         else {
             if(crp->in && inevents) {
-                mill_resume(crp->in, inevents);
-                mill_poller_rm(evs[i].data.fd, FDW_IN);
+                struct mill_cr *cr = crp->in;
+                mill_resume(cr, inevents);
+                mill_poller_rm(cr);
+                if(mill_timer_enabled(&cr->timer))
+                    mill_timer_rm(&cr->timer);
             }
             if(crp->out && outevents) {
-                mill_resume(crp->out, outevents);
-                mill_poller_rm(evs[i].data.fd, FDW_OUT);
+                struct mill_cr *cr = crp->out;
+                mill_resume(cr, outevents);
+                mill_poller_rm(cr);
+                if(mill_timer_enabled(&cr->timer))
+                    mill_timer_rm(&cr->timer);
             }
         }
     }
     /* Return 0 in case of time out. 1 if at least one coroutine was resumed. */
     return numevs > 0 ? 1 : 0;
 }
-

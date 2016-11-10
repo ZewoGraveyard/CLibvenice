@@ -33,7 +33,7 @@
 #include <unistd.h>
 
 #include "debug.h"
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "utils.h"
 
 #ifndef MILL_UNIX_BUFLEN
@@ -100,7 +100,7 @@ static void unixconn_init(struct mill_unixconn *conn, int fd) {
     conn->olen = 0;
 }
 
-unixsock unixlisten(const char *addr, int backlog) {
+struct mill_unixsock *mill_unixlisten_(const char *addr, int backlog) {
     struct sockaddr_un su;
     int rc = mill_unixresolve(addr, &su);
     if (rc != 0) {
@@ -134,7 +134,8 @@ unixsock unixlisten(const char *addr, int backlog) {
     return &l->sock;
 }
 
-unixsock unixaccept(unixsock s, int64_t deadline) {
+struct mill_unixsock *mill_unixaccept_(struct mill_unixsock *s,
+      int64_t deadline) {
     if(s->type != MILL_UNIXLISTENER)
         mill_panic("trying to accept on a socket that isn't listening");
     struct mill_unixlistener *l = (struct mill_unixlistener*)s;
@@ -152,7 +153,7 @@ unixsock unixaccept(unixsock s, int64_t deadline) {
             }
             unixconn_init(conn, as);
             errno = 0;
-            return (unixsock)conn;
+            return (struct mill_unixsock*)conn;
         }
         mill_assert(as == -1);
         if(errno != EAGAIN && errno != EWOULDBLOCK)
@@ -163,11 +164,13 @@ unixsock unixaccept(unixsock s, int64_t deadline) {
             errno = ETIMEDOUT;
             return NULL;
         }
+        if(rc & FDW_ERR)
+            return NULL;
         mill_assert(rc == FDW_IN);
     }
 }
 
-unixsock unixconnect(const char *addr) {
+struct mill_unixsock *mill_unixconnect_(const char *addr) {
     struct sockaddr_un su;
     int rc = mill_unixresolve(addr, &su);
     if (rc != 0) {
@@ -201,10 +204,10 @@ unixsock unixconnect(const char *addr) {
     }
     unixconn_init(conn, s);
     errno = 0;
-    return (unixsock)conn;
+    return (struct mill_unixsock*)conn;
 }
 
-void unixpair(unixsock *a, unixsock *b) {
+void mill_unixpair_(struct mill_unixsock **a, struct mill_unixsock **b) {
     if(!a || !b) {
         errno = EINVAL;
         return;
@@ -225,7 +228,7 @@ void unixpair(unixsock *a, unixsock *b) {
         return;
     }
     unixconn_init(conn, fd[0]);
-    *a = (unixsock)conn;
+    *a = (struct mill_unixsock*)conn;
     conn = malloc(sizeof(struct mill_unixconn));
     if(!conn) {
         free(*a);
@@ -237,11 +240,12 @@ void unixpair(unixsock *a, unixsock *b) {
         return;
     }
     unixconn_init(conn, fd[1]);
-    *b = (unixsock)conn;
+    *b = (struct mill_unixsock*)conn;
     errno = 0;
 }
 
-size_t unixsend(unixsock s, const void *buf, size_t len, int64_t deadline) {
+size_t mill_unixsend_(struct mill_unixsock *s, const void *buf, size_t len,
+      int64_t deadline) {
     if(s->type != MILL_UNIXCONN)
         mill_panic("trying to send to an unconnected socket");
     struct mill_unixconn *conn = (struct mill_unixconn*)s;
@@ -274,6 +278,12 @@ size_t unixsend(unixsock s, const void *buf, size_t len, int64_t deadline) {
     while(remaining) {
         ssize_t sz = send(conn->fd, pos, remaining, 0);
         if(sz == -1) {
+            /* Operating systems are inconsistent w.r.t. returning EPIPE and
+               ECONNRESET. Let's paper over it like this. */
+            if(errno == EPIPE) {
+                errno = ECONNRESET;
+                return 0;
+            }
             if(errno != EAGAIN && errno != EWOULDBLOCK)
                 return 0;
             int rc = fdwait(conn->fd, FDW_OUT, deadline);
@@ -281,16 +291,16 @@ size_t unixsend(unixsock s, const void *buf, size_t len, int64_t deadline) {
                 errno = ETIMEDOUT;
                 return len - remaining;
             }
-            mill_assert(rc == FDW_OUT);
             continue;
         }
         pos += sz;
         remaining -= sz;
     }
+    errno = 0;
     return len;
 }
 
-void unixflush(unixsock s, int64_t deadline) {
+void mill_unixflush_(struct mill_unixsock *s, int64_t deadline) {
     if(s->type != MILL_UNIXCONN)
         mill_panic("trying to send to an unconnected socket");
     struct mill_unixconn *conn = (struct mill_unixconn*)s;
@@ -303,6 +313,12 @@ void unixflush(unixsock s, int64_t deadline) {
     while(remaining) {
         ssize_t sz = send(conn->fd, pos, remaining, 0);
         if(sz == -1) {
+            /* Operating systems are inconsistent w.r.t. returning EPIPE and
+               ECONNRESET. Let's paper over it like this. */
+            if(errno == EPIPE) {
+                errno = ECONNRESET;
+                return;
+            }
             if(errno != EAGAIN && errno != EWOULDBLOCK)
                 return;
             int rc = fdwait(conn->fd, FDW_OUT, deadline);
@@ -310,7 +326,6 @@ void unixflush(unixsock s, int64_t deadline) {
                 errno = ETIMEDOUT;
                 return;
             }
-            mill_assert(rc == FDW_OUT);
             continue;
         }
         pos += sz;
@@ -320,7 +335,8 @@ void unixflush(unixsock s, int64_t deadline) {
     errno = 0;
 }
 
-size_t unixrecv(unixsock s, void *buf, size_t len, int64_t deadline) {
+size_t mill_unixrecv_(struct mill_unixsock *s, void *buf, size_t len,
+      int64_t deadline) {
     if(s->type != MILL_UNIXCONN)
         mill_panic("trying to receive from an unconnected socket");
     struct mill_unixconn *conn = (struct mill_unixconn*)s;
@@ -402,7 +418,7 @@ size_t unixrecv(unixsock s, void *buf, size_t len, int64_t deadline) {
     }
 }
 
-size_t unixrecvuntil(unixsock s, void *buf, size_t len,
+size_t mill_unixrecvuntil_(struct mill_unixsock *s, void *buf, size_t len,
       const char *delims, size_t delimcount, int64_t deadline) {
     if(s->type != MILL_UNIXCONN)
         mill_panic("trying to receive from an unconnected socket");
@@ -423,7 +439,14 @@ size_t unixrecvuntil(unixsock s, void *buf, size_t len,
     return len;
 }
 
-void unixclose(unixsock s) {
+void mill_unixshutdown_(struct mill_unixsock *s, int how) {
+    mill_assert(s->type == MILL_UNIXCONN);
+    struct mill_unixconn *c = (struct mill_unixconn*)s;
+    int rc = shutdown(c->fd, how);
+    mill_assert(rc == 0 || errno == ENOTCONN);
+}
+
+void mill_unixclose_(struct mill_unixsock *s) {
     if(s->type == MILL_UNIXLISTENER) {
         struct mill_unixlistener *l = (struct mill_unixlistener*)s;
         fdclean(l->fd);
@@ -443,7 +466,7 @@ void unixclose(unixsock s) {
     mill_assert(0);
 }
 
-unixsock unixattach(int fd, int listening) {
+struct mill_unixsock *mill_unixattach_(int fd, int listening) {
     if(listening == 0) {
         struct mill_unixconn *conn = malloc(sizeof(struct mill_unixconn));
         if(!conn) {
@@ -465,7 +488,7 @@ unixsock unixattach(int fd, int listening) {
     return &l->sock;
 }
 
-int unixdetach(unixsock s) {
+int mill_unixdetach_(struct mill_unixsock *s) {
     if(s->type == MILL_UNIXLISTENER) {
         struct mill_unixlistener *l = (struct mill_unixlistener*)s;
         int fd = l->fd;
@@ -479,4 +502,3 @@ int unixdetach(unixsock s) {
     }
     mill_assert(0);
 }
-

@@ -1,6 +1,6 @@
 /*
 
-  Copyright (c) 2015 Martin Sustrik
+  Copyright (c) 2016 Martin Sustrik
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"),
@@ -22,13 +22,22 @@
 
 */
 
-#ifndef MILL_IP_INCLUDED
-#define MILL_IP_INCLUDED
+#include <unistd.h>
 
+#include "cr.h"
 #include "libmill.h"
+#include "poller.h"
+#include "timer.h"
 
-int mill_ipfamily(ipaddr addr);
-int mill_iplen(ipaddr addr);
-int mill_ipport(ipaddr addr);
-
-#endif
+pid_t mill_mfork_(void) {
+    pid_t pid = fork();
+    if(pid != 0) {
+        /* Parent. */
+        return pid;
+    }
+    /* Child. */
+    mill_cr_postfork();
+    mill_poller_postfork();
+    mill_timer_postfork();
+    return 0;
+}

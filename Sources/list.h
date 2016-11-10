@@ -61,4 +61,3 @@ struct mill_list_item *mill_list_erase(struct mill_list *self,
     struct mill_list_item *item);
 
 #endif
-

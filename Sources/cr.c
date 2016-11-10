@@ -28,7 +28,7 @@
 
 #include "cr.h"
 #include "debug.h"
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "poller.h"
 #include "stack.h"
 #include "utils.h"
@@ -136,16 +136,25 @@ static inline void darwin_pool_pop_push() {
 }
 #endif
 
-volatile int mill_unoptimisable1 = 1;
-volatile void *mill_unoptimisable2 = NULL;
+volatile int mill_unoptimisable1_ = 1;
+volatile void *mill_unoptimisable2_ = NULL;
 
 struct mill_cr mill_main = {0};
+
 struct mill_cr *mill_running = &mill_main;
 
 /* Queue of coroutines scheduled for execution. */
-static struct mill_slist mill_ready = {0};
+struct mill_slist mill_ready = {0};
 
-void goprepare(int count, size_t stack_size) {
+inline mill_ctx mill_getctx_(void) {
+#if defined __x86_64__
+    return mill_running->ctx;
+#else
+    return &mill_running->ctx;
+#endif
+}
+
+void mill_goprepare_(int count, size_t stack_size) {
     if(mill_slow(mill_hascrs())) {errno = EAGAIN; return;}
     /* Allocate any resources needed by the polling mechanism. */
     mill_poller_init();
@@ -169,61 +178,90 @@ int mill_suspend(void) {
 #endif
     
     /* Store the context of the current coroutine, if any. */
-    if(mill_running && mill_setjmp(&mill_running->ctx))
+    if(mill_running && mill_setjmp_(mill_getctx_())) {
         return mill_running->result;
+    }
     while(1) {
         /* If there's a coroutine ready to be executed go for it. */
         if(!mill_slist_empty(&mill_ready)) {
             ++counter;
             struct mill_slist_item *it = mill_slist_pop(&mill_ready);
             mill_running = mill_cont(it, struct mill_cr, ready);
-            mill_jmp(&mill_running->ctx);
+            mill_assert(mill_running->is_ready == 1);
+            mill_running->is_ready = 0;
+            mill_longjmp_(mill_getctx_());
 #ifdef __APPLE__
             darwin_pool_pop_push();
 #endif
         }
-        /*  Otherwise, we are going to wait for sleeping coroutines
-            and for external events. */
+        /* Otherwise, we are going to wait for sleeping coroutines
+           and for external events. */
         mill_wait(1);
         mill_assert(!mill_slist_empty(&mill_ready));
         counter = 0;
     }
 }
 
-void mill_resume(struct mill_cr *cr, int result) {
+inline void mill_resume(struct mill_cr *cr, int result) {
+    mill_assert(!cr->is_ready);
 #ifdef __APPLE__
     darwin_pool_pop_push();
 #endif
     
     cr->result = result;
     cr->state = MILL_READY;
+    cr->is_ready = 1;
     mill_slist_push_back(&mill_ready, &cr->ready);
 }
 
+/* mill_prologue_() and mill_epilogue_() live in the same scope with
+   libdill's stack-switching black magic. As such, they are extremely
+   fragile. Therefore, the optimiser is prohibited to touch them. */
+#if defined __clang__
+#define dill_noopt __attribute__((optnone))
+#elif defined __GNUC__
+#define dill_noopt __attribute__((optimize("O0")))
+#else
+#error "Unsupported compiler!"
+#endif
+
 /* The intial part of go(). Starts the new coroutine.
    Returns the pointer to the top of its stack. */
-void *mill_go_prologue(const char *created) {
+__attribute__((noinline)) dill_noopt
+void *mill_prologue_(const char *created) {
 #ifdef __APPLE__
     darwin_pool_pop_push();
 #endif
     
     /* Ensure that debug functions are available whenever a single go()
-     statement is present in the user's code. */
+       statement is present in the user's code. */
     mill_preserve_debug();
     /* Allocate and initialise new stack. */
-    struct mill_cr *cr = ((struct mill_cr*)mill_allocstack()) - 1;
+#if defined MILL_VALGRIND
+    size_t stack_size;
+    struct mill_cr *cr = ((struct mill_cr*)mill_allocstack(&stack_size));
+    int sid = VALGRIND_STACK_REGISTER(((char*)cr) - stack_size, cr);
+    --cr;
+    cr->sid = sid;
+#else
+    struct mill_cr *cr = ((struct mill_cr*)mill_allocstack(NULL)) - 1;
+#endif
     mill_register_cr(&cr->debug, created);
+    cr->is_ready = 0;
+    cr->clsval = NULL;
+    cr->timer.expiry = -1;
+    cr->fd = -1;
+    cr->events = 0;
     mill_trace(created, "{%d}=go()", (int)cr->debug.id);
     /* Suspend the parent coroutine and make the new one running. */
-    if(mill_setjmp(&mill_running->ctx))
-        return NULL;
     mill_resume(mill_running, 0);
     mill_running = cr;
     return (void*)(cr);
 }
 
 /* The final part of go(). Cleans up after the coroutine is finished. */
-void mill_go_epilogue(void) {
+__attribute__((noinline)) dill_noopt
+void mill_epilogue_(void) {
 #ifdef __APPLE__
     darwin_pool_pop_push();
 #endif
@@ -237,7 +275,7 @@ void mill_go_epilogue(void) {
     mill_suspend();
 }
 
-void mill_yield(const char *current) {
+void mill_yield_(const char *current) {
     mill_trace(current, "yield()");
     mill_set_current(&mill_running->debug, current);
     /* This looks fishy, but yes, we can resume the coroutine even before
@@ -246,20 +284,35 @@ void mill_yield(const char *current) {
     mill_suspend();
 }
 
-void co(void* ctx, void (*routine)(void*), const char *created) {
-    void *mill_sp = mill_go_prologue(created);
-    if(mill_sp) {
-        int mill_anchor[mill_unoptimisable1];
-        mill_unoptimisable2 = &mill_anchor;
+void *mill_cls_(void) {
+    return mill_running->clsval;
+}
+
+void mill_setcls_(void *val) {
+    mill_running->clsval = val;
+}
+
+void mill_cr_postfork(void) {
+    /* Drop all coroutines in the "ready to execute" list. */
+    mill_slist_init(&mill_ready);
+}
+
+void co(void *ctx, void (*routine)(void *), const char *created) {
+    void *mill_sp;
+    mill_ctx mctx = mill_getctx_();
+    if(!mill_setjmp_(mctx)) {
+        mill_sp = mill_prologue_(MILL_HERE_);
+        int mill_anchor[mill_unoptimisable1_];
+        mill_unoptimisable2_ = &mill_anchor;
         char mill_filler[(char*)&mill_anchor - (char*)(mill_sp)];
-        mill_unoptimisable2 = &mill_filler;
+        mill_unoptimisable2_ = &mill_filler;
         routine(ctx);
-        mill_go_epilogue();
+        mill_epilogue_();
     }
 }
 
 size_t mill_clauselen() {
-    return MILL_CLAUSELEN;
+    return MILL_CLAUSELEN_;
 }
 
 int mill_number_of_cores(void) {

@@ -76,43 +76,19 @@ void mill_poller_init(void) {
     errno = 0;
 }
 
-pid_t mill_fork(void) {
-    pid_t pid = fork();
-    if(pid != 0)
-        return pid;
-    /* In the child process we have to create a new kernel-side pollset,
-       identical to the one in the parent process, yet not sharing its
-       destiny. */
+void mill_poller_postfork(void) {
     if(mill_kfd != -1) {
         /* TODO: kqueue documentation says that a kqueue descriptor won't
            survive a fork. However, implementations seem to diverge.
            On FreeBSD the following function succeeds. On OSX it returns
            EACCESS. Therefore we ignore the return value. */
         close(mill_kfd);
-        mill_kfd = kqueue();
-        mill_assert(mill_kfd >= 0);
-        struct kevent chngs[MILL_CHNGSSIZE];
-        int nchngs = 0;
-        int fd;
-        for(fd = 0; fd != mill_ncrpairs; ++fd) {
-            struct mill_crpair *crp = &mill_crpairs[fd];
-            if(nchngs >= MILL_CHNGSSIZE - 1) {
-                int rc = kevent(mill_kfd, chngs, nchngs, NULL, 0, NULL);
-                mill_assert(rc != -1);
-                nchngs = 0;
-            }
-            if(crp->currevs & FDW_IN) {
-                EV_SET(&chngs[nchngs], fd, EVFILT_READ, EV_ADD, 0, 0, 0);
-                ++nchngs;
-            }
-            if(crp->currevs & FDW_OUT) {
-                EV_SET(&chngs[nchngs], fd, EVFILT_WRITE, EV_ADD, 0, 0, 0);
-                ++nchngs;
-            }
-        }
     }
-    errno = 0;
-    return 0;
+    mill_kfd = -1;
+    mill_crpairs = NULL;
+    mill_ncrpairs = 0;
+    mill_changelist = MILL_ENDLIST;
+    mill_poller_init();
 }
 
 static void mill_poller_add(int fd, int events) {
@@ -135,12 +111,18 @@ static void mill_poller_add(int fd, int events) {
     }
 }
 
-static void mill_poller_rm(int fd, int events) {
+static void mill_poller_rm(struct mill_cr *cr) {
+    int fd = cr->fd;
+    mill_assert(fd != -1);
     struct mill_crpair *crp = &mill_crpairs[fd];
-    if(events & FDW_IN)
+    if(crp->in == cr) {
         crp->in = NULL;
-    if(events & FDW_OUT)
+        cr->fd = -1;
+    }
+    if(crp->out == cr) {
         crp->out = NULL;
+        cr->fd = -1;
+    }
     if(!crp->next) {
         crp->next = mill_changelist;
         mill_changelist = fd + 1;
@@ -264,19 +246,31 @@ static int mill_poller_wait(int timeout) {
         int fd = chl - 1;
         struct mill_crpair *crp = &mill_crpairs[fd];
         if(crp->in == crp->out) {
+            struct mill_cr *cr = crp->in;
             mill_assert(crp->in);
-            mill_resume(crp->in, crp->firing);
+            mill_resume(cr, crp->firing);
+            cr->fd = -1;
             crp->in = NULL;
             crp->out = NULL;
+            if(mill_timer_enabled(&cr->timer))
+                mill_timer_rm(&cr->timer);
         }
         else {
             if(crp->in) {
-                mill_resume(crp->in, crp->firing & (FDW_IN | FDW_ERR));
+                struct mill_cr *cr = crp->in;
+                mill_resume(cr, crp->firing & (FDW_IN | FDW_ERR));
+                cr->fd = -1;
                 crp->in = NULL;
+                if(mill_timer_enabled(&cr->timer))
+                    mill_timer_rm(&cr->timer);
             }
             if(crp->out) {
-                mill_resume(crp->out, crp->firing & (FDW_OUT | FDW_ERR));
+                struct mill_cr *cr = crp->out;
+                mill_resume(cr, crp->firing & (FDW_OUT | FDW_ERR));
+                cr->fd = -1;
                 crp->out = NULL;
+                if(mill_timer_enabled(&cr->timer))
+                    mill_timer_rm(&cr->timer);
             }
         }
         crp->firing = 0;
@@ -285,4 +279,3 @@ static int mill_poller_wait(int timeout) {
     /* Return 0 in case of time out. 1 if at least one coroutine was resumed. */
     return nevs > 0 ? 1 : 0;
 }
-
