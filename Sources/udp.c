@@ -34,7 +34,7 @@
 #include <unistd.h>
 
 #include "ip.h"
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "utils.h"
 
 struct mill_udpsock {
@@ -51,7 +51,7 @@ static void mill_udptune(int s) {
     mill_assert(rc != -1);
 }
 
-udpsock udplisten(ipaddr addr) {
+struct mill_udpsock *mill_udplisten_(ipaddr addr) {
     /* Open the listening socket. */
     int s = socket(mill_ipfamily(addr), SOCK_DGRAM, 0);
     if(s == -1)
@@ -66,7 +66,7 @@ udpsock udplisten(ipaddr addr) {
     /* If the user requested an ephemeral port,
        retrieve the port number assigned by the OS now. */
     int port = mill_ipport(addr);
-    if(port == 0) {
+    if(!port) {
         ipaddr baddr;
         socklen_t len = sizeof(ipaddr);
         rc = getsockname(s, (struct sockaddr*)&baddr, &len);
@@ -94,11 +94,12 @@ udpsock udplisten(ipaddr addr) {
     return us;
 }
 
-int udpport(udpsock s) {
+int mill_udpport_(struct mill_udpsock *s) {
     return s->port;
 }
 
-void udpsend(udpsock s, ipaddr addr, const void *buf, size_t len) {
+void mill_udpsend_(struct mill_udpsock *s, ipaddr addr,
+        const void *buf, size_t len) {
     struct sockaddr *saddr = (struct sockaddr*) &addr;
     ssize_t ss = sendto(s->fd, buf, len, 0, saddr, saddr->sa_family ==
         AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6));
@@ -111,8 +112,8 @@ void udpsend(udpsock s, ipaddr addr, const void *buf, size_t len) {
         errno = 0;
 }
 
-size_t udprecv(udpsock s, ipaddr *addr, void *buf, size_t len,
-      int64_t deadline) {
+size_t mill_udprecv_(struct mill_udpsock *s, ipaddr *addr,
+      void *buf, size_t len, int64_t deadline) {
     ssize_t ss;
     while(1) {
         socklen_t slen = sizeof(ipaddr);
@@ -132,14 +133,14 @@ size_t udprecv(udpsock s, ipaddr *addr, void *buf, size_t len,
     return (size_t)ss;
 }
 
-void udpclose(udpsock s) {
+void mill_udpclose_(struct mill_udpsock *s) {
     fdclean(s->fd);
     int rc = close(s->fd);
     mill_assert(rc == 0);
     free(s);
 }
 
-udpsock udpattach(int fd) {
+udpsock mill_udpattach_(int fd) {
     struct mill_udpsock *us = malloc(sizeof(struct mill_udpsock));
     if(!us) {
         errno = ENOMEM;
@@ -151,9 +152,8 @@ udpsock udpattach(int fd) {
     return us;
 }
 
-int udpdetach(udpsock s) {
+int mill_udpdetach_(udpsock s) {
     int fd = s->fd;
     free(s);
     return fd;
 }
-

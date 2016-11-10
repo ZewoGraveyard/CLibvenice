@@ -31,7 +31,7 @@
 static mach_timebase_info_data_t mill_mtid = {0};
 #endif
 
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "timer.h"
 #include "utils.h"
 

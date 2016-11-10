@@ -1,26 +1,26 @@
 /*
 
- Copyright (c) 2015 Martin Sustrik
+  Copyright (c) 2015 Martin Sustrik
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"),
- to deal in the Software without restriction, including without limitation
- the rights to use, copy, modify, merge, publish, distribute, sublicense,
- and/or sell copies of the Software, and to permit persons to whom
- the Software is furnished to do so, subject to the following conditions:
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom
+  the Software is furnished to do so, subject to the following conditions:
 
- The above copyright notice and this permission notice shall be included
- in all copies or substantial portions of the Software.
+  The above copyright notice and this permission notice shall be included
+  in all copies or substantial portions of the Software.
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- IN THE SOFTWARE.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
 
- */
+*/
 
 #include <assert.h>
 #include <stdarg.h>
@@ -31,7 +31,7 @@
 
 #include "chan.h"
 #include "cr.h"
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "list.h"
 #include "stack.h"
 #include "utils.h"
@@ -86,31 +86,31 @@ void goredump(void) {
     char idbuf[10];
 
     fprintf(stderr,
-            "\nCOROUTINE  state                                      "
-            "current                                  created\n");
+        "\nCOROUTINE  state                                      "
+        "current                                  created\n");
     fprintf(stderr,
-            "----------------------------------------------------------------------"
-            "--------------------------------------------------\n");
+        "----------------------------------------------------------------------"
+        "--------------------------------------------------\n");
     struct mill_list_item *it;
     for(it = mill_list_begin(&mill_all_crs); it; it = mill_list_next(it)) {
         struct mill_cr *cr = mill_cont(it, struct mill_cr, debug.item);
         switch(cr->state) {
-            case MILL_READY:
-                sprintf(buf, "%s", mill_running == cr ? "RUNNING" : "ready");
-                break;
-            case MILL_MSLEEP:
-                sprintf(buf, "msleep()");
-                break;
-            case MILL_FDWAIT:
-                sprintf(buf, "fdwait(%d, %s)", cr->fd,
-                        (cr->events & FDW_IN) &&
-                        (cr->events & FDW_OUT) ? "FDW_IN | FDW_OUT" :
-                        cr->events & FDW_IN ? "FDW_IN" :
-                        cr->events & FDW_OUT ? "FDW_OUT" : 0);
-                break;
-            case MILL_CHR:
-            case MILL_CHS:
-            case MILL_CHOOSE:
+        case MILL_READY:
+            sprintf(buf, "%s", mill_running == cr ? "RUNNING" : "ready");
+            break;
+        case MILL_MSLEEP:
+            sprintf(buf, "msleep()");
+            break;
+        case MILL_FDWAIT:
+            sprintf(buf, "fdwait(%d, %s)", cr->fd,
+                (cr->events & FDW_IN) &&
+                    (cr->events & FDW_OUT) ? "FDW_IN | FDW_OUT" :
+                cr->events & FDW_IN ? "FDW_IN" :
+                cr->events & FDW_OUT ? "FDW_OUT" : 0);
+            break;
+        case MILL_CHR:
+        case MILL_CHS:
+        case MILL_CHOOSE:
             {
                 int pos = 0;
                 if(cr->state == MILL_CHR)
@@ -122,47 +122,47 @@ void goredump(void) {
                 int first = 1;
                 struct mill_slist_item *it;
                 for(it = mill_slist_begin(&cr->choosedata.clauses); it;
-                    it = mill_slist_next(it)) {
-                    if(first)
-                        first = 0;
-                    else
-                        pos += sprintf(&buf[pos], ",");
-                    pos += sprintf(&buf[pos], "<%d>", mill_getchan(
-                                                                   mill_cont(it, struct mill_clause,
-                                                                             chitem)->ep)->debug.id);
-                }
-                sprintf(&buf[pos], ")");
+                      it = mill_slist_next(it)) {
+                if(first)
+                    first = 0;
+                else
+                    pos += sprintf(&buf[pos], ",");
+                pos += sprintf(&buf[pos], "<%d>", mill_getchan(
+                        mill_cont(it, struct mill_clause,
+                        chitem)->ep)->debug.id);
             }
-                break;
-            default:
-                assert(0);
+            sprintf(&buf[pos], ")");
+            }
+            break;
+        default:
+            assert(0);
         }
         snprintf(idbuf, sizeof(idbuf), "{%d}", (int)cr->debug.id);
         fprintf(stderr, "%-8s   %-42s %-40s %s\n",
-                idbuf,
-                buf,
-                cr == mill_running ? "---" : cr->debug.current,
-                cr->debug.created ? cr->debug.created : "<main>");
+            idbuf,
+            buf,
+            cr == mill_running ? "---" : cr->debug.current,
+            cr->debug.created ? cr->debug.created : "<main>");
     }
     fprintf(stderr,"\n");
 
     if(mill_list_empty(&mill_all_chans))
         return;
     fprintf(stderr,
-            "CHANNEL  msgs/max    senders/receivers                          "
-            "refs  done  created\n");
+        "CHANNEL  msgs/max    senders/receivers                          "
+        "refs  done  created\n");
     fprintf(stderr,
-            "----------------------------------------------------------------------"
-            "--------------------------------------------------\n");
+        "----------------------------------------------------------------------"
+        "--------------------------------------------------\n");
     for(it = mill_list_begin(&mill_all_chans); it; it = mill_list_next(it)) {
         struct mill_chan *ch = mill_cont(it, struct mill_chan, debug.item);
         snprintf(idbuf, sizeof(idbuf), "<%d>", (int)ch->debug.id);
         sprintf(buf, "%d/%d",
-                (int)ch->items,
-                (int)ch->bufsz);
+            (int)ch->items,
+            (int)ch->bufsz);
         fprintf(stderr, "%-8s %-11s ",
-                idbuf,
-                buf);
+            idbuf,
+            buf);
         int pos;
         struct mill_list *clauselist;
         if(!mill_list_empty(&ch->sender.clauses)) {
@@ -180,7 +180,7 @@ void goredump(void) {
         struct mill_clause *cl = NULL;
         if(clauselist)
             cl = mill_cont(mill_list_begin(clauselist),
-                           struct mill_clause, epitem);
+                struct mill_clause, epitem);
         int first = 1;
         while(cl) {
             if(first)
@@ -189,13 +189,13 @@ void goredump(void) {
                 pos += sprintf(&buf[pos], ",");
             pos += sprintf(&buf[pos], "{%d}", (int)cl->cr->debug.id);
             cl = mill_cont(mill_list_next(&cl->epitem),
-                           struct mill_clause, epitem);
+                struct mill_clause, epitem);
         }
         fprintf(stderr, "%-42s %-5d %-5s %s\n",
-                buf,
-                0,
-                ch->done ? "yes" : "no",
-                ch->debug.created);
+            buf,
+            0,
+            ch->done ? "yes" : "no",
+            ch->debug.created);
     }
     fprintf(stderr,"\n");
 }
@@ -217,7 +217,7 @@ void mill_trace_(const char *location, const char *format, ...) {
     gettimeofday(&nw, NULL);
     struct tm *nwtm = localtime(&nw.tv_sec);
     snprintf(buf, sizeof buf, "%02d:%02d:%02d",
-             (int)nwtm->tm_hour, (int)nwtm->tm_min, (int)nwtm->tm_sec);
+        (int)nwtm->tm_hour, (int)nwtm->tm_min, (int)nwtm->tm_sec);
     fprintf(stderr, "==> %s.%06d ", buf, (int)nw.tv_usec);
 
     /* Coroutine ID. */
@@ -247,5 +247,5 @@ void mill_preserve_debug(void) {
 
 int mill_hascrs(void) {
     return (mill_all_crs.first == &mill_main.debug.item &&
-            mill_all_crs.last == &mill_main.debug.item) ? 0 : 1;
+        mill_all_crs.last == &mill_main.debug.item) ? 0 : 1;
 }

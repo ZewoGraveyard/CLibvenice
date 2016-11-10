@@ -1,26 +1,21 @@
-// file.c
-//
-// The MIT License (MIT)
-//
-// Copyright (c) 2016 Zewo
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDINbG BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
+/*
+  Copyright (c) 2016 Paulo Faria
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom
+  the Software is furnished to do so, subject to the following conditions:
+  The above copyright notice and this permission notice shall be included
+  in all copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+  THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+*/
 
 #define _XOPEN_SOURCE 500
 #include <ftw.h>
@@ -33,7 +28,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "utils.h"
 
 #ifndef MILL_FILE_BUFLEN
@@ -61,7 +56,7 @@ static void mill_filetune(int fd) {
 }
 
 
-mfile fileopen(const char *pathname, int flags, mode_t mode) {
+struct mill_file *mill_mfopen_(const char *pathname, int flags, mode_t mode) {
     /* Open the file. */
     int fd = open(pathname, flags | O_NONBLOCK, mode);
     if (fd == -1)
@@ -88,7 +83,7 @@ mfile fileopen(const char *pathname, int flags, mode_t mode) {
     return f;
 }
 
-size_t filewrite(mfile f, const void *buf, size_t len, int64_t deadline) {
+size_t mill_mfwrite_(struct mill_file *f, const void *buf, size_t len, int64_t deadline) {
     /* If it fits into the output buffer copy it there and be done. */
     if(f->olen + len <= MILL_FILE_BUFLEN) {
         memcpy(&f->obuf[f->olen], buf, len);
@@ -98,7 +93,7 @@ size_t filewrite(mfile f, const void *buf, size_t len, int64_t deadline) {
     }
 
     /* If it doesn't fit, flush the output buffer first. */
-    fileflush(f, deadline);
+    mfflush(f, deadline);
     if(errno != 0)
         return 0;
 
@@ -136,7 +131,7 @@ size_t filewrite(mfile f, const void *buf, size_t len, int64_t deadline) {
     return len;
 }
 
-void fileflush(mfile f, int64_t deadline) {
+void mill_mfflush_(struct mill_file *f, int64_t deadline) {
     if(!f->olen) {
         errno = 0;
         return;
@@ -166,7 +161,7 @@ void fileflush(mfile f, int64_t deadline) {
     errno = 0;
 }
 
-size_t fileread(mfile f, void *buf, size_t len, int64_t deadline) {
+size_t mill_mfread_(struct mill_file *f, void *buf, size_t len, int64_t deadline) {
     /* If there's enough data in the buffer it's easy. */
     if(f->ilen >= len) {
         memcpy(buf, &f->ibuf[f->ifirst], len);
@@ -247,7 +242,7 @@ size_t fileread(mfile f, void *buf, size_t len, int64_t deadline) {
     }
 }
 
-size_t filereadlh(mfile f, void *buf, size_t lowwater, size_t highwater, int64_t deadline) {
+size_t mill_mfreadlh_(struct mill_file *f, void *buf, size_t lowwater, size_t highwater, int64_t deadline) {
     /* The buffer is between lowwater and highwater. */
     if(f->ilen >= lowwater && f->ilen <= highwater) {
         memcpy(buf, &f->ibuf[f->ifirst], f->ilen);
@@ -351,7 +346,7 @@ size_t filereadlh(mfile f, void *buf, size_t lowwater, size_t highwater, int64_t
 }
 
 
-void fileclose(mfile f) {
+void mill_mfclose_(struct mill_file *f) {
     fdclean(f->fd);
     int rc = close(f->fd);
     mill_assert(rc == 0);
@@ -359,7 +354,7 @@ void fileclose(mfile f) {
     return;
 }
 
-mfile fileattach(int fd) {
+struct mill_file *mill_mfattach_(int fd) {
     struct mill_file *f = malloc(sizeof(struct mill_file));
     if(!f) {
         errno = ENOMEM;
@@ -374,17 +369,17 @@ mfile fileattach(int fd) {
     return f;
 }
 
-int filedetach(mfile f) {
+int mill_mfdetach_(struct mill_file *f) {
     int fd = f->fd;
     free(f);
     return fd;
 }
 
-off_t filetell(mfile f) {
+off_t mill_mftell_(struct mill_file *f) {
     return lseek(f->fd, 0, SEEK_CUR) - f->ilen;
 }
 
-off_t fileseek(mfile f, off_t offset) {
+off_t mill_mfseek_(struct mill_file *f, off_t offset) {
     f->ifirst = 0;
     f->ilen = 0;
     f->olen = 0;
@@ -392,7 +387,7 @@ off_t fileseek(mfile f, off_t offset) {
     return lseek(f->fd, offset, SEEK_SET);
 }
 
-off_t filesize(mfile f) {
+off_t mill_mfsize_(struct mill_file *f) {
     /* pipe or FIFO special files does not support lseek */
     if (!S_ISREG(f->mode))
         return -1;
@@ -403,14 +398,41 @@ off_t filesize(mfile f) {
     return size + f->olen;
 }
 
-int fileeof(mfile f) {
+int mill_mfeof_(struct mill_file *f) {
     return f->eof;
 }
 
-int unlink_cb(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
+int mill_mfunlink_cb(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
     return remove(fpath);
 }
 
-int fileremove(const char *path) {
-    return nftw(path, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
+int mill_mfremove_(const char *path) {
+    return nftw(path, mill_mfunlink_cb, 64, FTW_DEPTH | FTW_PHYS);
+}
+
+struct mill_file *mill_mfin_(void) {
+    static struct mill_file f = {-1, 0, 0, 0};
+    if(mill_slow(f.fd < 0)) {
+        mill_filetune(STDIN_FILENO);
+        f.fd = STDIN_FILENO;
+    }
+    return &f;
+}
+
+struct mill_file *mill_mfout_(void) {
+    static struct mill_file f = {-1, 0, 0, 0};
+    if(mill_slow(f.fd < 0)) {
+        mill_filetune(STDOUT_FILENO);
+        f.fd = STDOUT_FILENO;
+    }
+    return &f;
+}
+
+struct mill_file *mill_mferr_(void) {
+    static struct mill_file f = {-1, 0, 0, 0};
+    if(mill_slow(f.fd < 0)) {
+        mill_filetune(STDERR_FILENO);
+        f.fd = STDERR_FILENO;
+    }
+    return &f;
 }

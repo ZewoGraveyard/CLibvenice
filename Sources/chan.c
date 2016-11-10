@@ -31,7 +31,7 @@
 #include "chan.h"
 #include "cr.h"
 #include "debug.h"
-#include "include/libvenice.h"
+#include "libmill.h"
 #include "utils.h"
 
 MILL_CT_ASSERT(MILL_CLAUSELEN_ == sizeof(struct mill_clause));

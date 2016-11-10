@@ -25,11 +25,10 @@
 #ifndef MILL_IP_INCLUDED
 #define MILL_IP_INCLUDED
 
-#include "include/libvenice.h"
+#include "libmill.h"
 
 int mill_ipfamily(ipaddr addr);
 int mill_iplen(ipaddr addr);
 int mill_ipport(ipaddr addr);
 
 #endif
-
