@@ -1,0 +1,2 @@
+void CLibvenice(void) {
+}
